@@ -37,23 +37,29 @@ def opportunities():
 
             try:
                 stock = yf.Ticker(symbol)
+                hist = stock.history(period="3mo")
 
-                hist_1d = stock.history(period="1mo")
+                if not hist.empty:
+                    closes = hist["Close"].dropna()
 
-                if not hist_1d.empty:
-                    current_price = float(hist_1d["Close"].iloc[-1])
+                    if len(closes) > 0:
+                        current_price = float(closes.iloc[-1])
 
-                    if len(hist_1d["Close"]) >= 20:
-                        sma20 = float(hist_1d["Close"].tail(20).mean())
+                    if len(closes) >= 10 and current_price is not None:
+                        sma10 = float(closes.tail(10).mean())
 
-                        if current_price > sma20:
+                        if current_price > sma10:
                             trend = "uptrend"
-                        elif current_price < sma20:
+                        elif current_price < sma10:
                             trend = "downtrend"
                         else:
                             trend = "neutral"
-                    else:
-                        trend = "unknown"
+
+                if current_price is None:
+                    try:
+                        current_price = float(stock.fast_info["lastPrice"])
+                    except:
+                        current_price = None
 
             except:
                 current_price = None
@@ -66,7 +72,7 @@ def opportunities():
                 "signal": "watch",
                 "signal_label_ar": "مراقبة",
                 "trend": trend,
-                "reason": "تم جلب السعر الحقيقي وتحديد الاتجاه بشكل أولي من السوق"
+                "reason": "تم جلب السعر الحقيقي وتحديد الاتجاه الأولي بناءً على متوسط 10 أيام"
             })
 
     return {"opportunities": opportunities_list}
