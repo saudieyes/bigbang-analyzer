@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 import csv
-import random
+import yfinance as yf
 
 app = FastAPI()
 
@@ -29,26 +29,23 @@ def opportunities():
 
         for row in reader:
 
-            score = random.randint(60, 95)
+            symbol = row["symbol"]
+            company = row["company"]
 
-            entry_price = round(random.uniform(50, 500), 2)
-            stop_loss = round(entry_price * 0.95, 2)
-            target_1 = round(entry_price * 1.10, 2)
+            try:
+                stock = yf.Ticker(symbol)
+                price = stock.history(period="1d")["Close"].iloc[-1]
+            except:
+                price = None
 
             opportunities_list.append({
-                "symbol": row["symbol"],
-                "company": row["company"],
+                "symbol": symbol,
+                "company": company,
+                "current_price": price,
                 "signal": "watch",
                 "signal_label_ar": "مراقبة",
-                "score": score,
-                "risk_level": "medium",
-                "entry_price": entry_price,
-                "stop_loss": stop_loss,
-                "target_1": target_1,
-                "trend": "uptrend",
-                "timeframe": "daily",
-                "reason": "تمت قراءة السهم من قائمة الأسهم الشرعية",
-                "ai_summary_ar": "هذا السهم مأخوذ من ملف الأسهم الشرعية ويجري تقييمه بواسطة محرك BIGBANG."
+                "trend": "unknown",
+                "reason": "تم جلب السعر الحقيقي من السوق"
             })
 
     return {"opportunities": opportunities_list}
