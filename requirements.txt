@@ -1,2 +1,7 @@
 fastapi
 uvicorn
+requests
+pandas
+numpy
+ta
+python-dotenv
