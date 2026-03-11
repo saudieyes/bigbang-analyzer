@@ -272,3 +272,19 @@ def portfolio_test():
     ]
 
     return portfolio_analysis(sample_stocks)
+    
+@app.get("/opportunities-simple")
+def opportunities_simple():
+
+    data = opportunities()
+
+    lines = []
+
+    for item in data["opportunities"]:
+
+        symbol = item["symbol"]
+        signal = item["signal"]
+
+        lines.append(f"{symbol} - {signal}")
+
+    return {"lines": lines}
