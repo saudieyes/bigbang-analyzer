@@ -1,4 +1,4 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Body
 import csv
 import yfinance as yf
 
@@ -114,7 +114,6 @@ def opportunities():
 
     return {"opportunities": opportunities_list}
 
-from fastapi import Body
 
 @app.post("/portfolio-analysis")
 def portfolio_analysis(stocks: list = Body(...)):
@@ -144,13 +143,10 @@ def portfolio_analysis(stocks: list = Body(...)):
 
             if trend == "uptrend" and profit_percent > 10:
                 signal = "HOLD"
-
             elif trend == "uptrend" and profit_percent < 5:
                 signal = "ADD"
-
             elif trend == "downtrend" and profit_percent > 10:
                 signal = "REDUCE"
-
             elif trend == "downtrend" and profit_percent < -5:
                 signal = "EXIT"
 
@@ -171,7 +167,9 @@ def portfolio_analysis(stocks: list = Body(...)):
         })
 
     return {"portfolio": results}
-    @app.get("/portfolio-test")
+
+
+@app.get("/portfolio-test")
 def portfolio_test():
     sample_stocks = [
         {"symbol": "AAPL", "buy_price": 220, "quantity": 10},
@@ -204,13 +202,10 @@ def portfolio_test():
 
             if trend == "uptrend" and profit_percent > 10:
                 signal = "HOLD"
-
             elif trend == "uptrend" and profit_percent < 5:
                 signal = "ADD"
-
             elif trend == "downtrend" and profit_percent > 10:
                 signal = "REDUCE"
-
             elif trend == "downtrend" and profit_percent < -5:
                 signal = "EXIT"
 
