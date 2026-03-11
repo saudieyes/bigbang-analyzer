@@ -34,6 +34,8 @@ def opportunities():
 
             current_price = None
             trend = "unknown"
+            sma10 = None
+            sma20 = None
 
             try:
                 stock = yf.Ticker(symbol)
@@ -45,9 +47,13 @@ def opportunities():
                     if len(closes) > 0:
                         current_price = float(closes.iloc[-1])
 
-                    if len(closes) >= 10 and current_price is not None:
+                    if len(closes) >= 10:
                         sma10 = float(closes.tail(10).mean())
 
+                    if len(closes) >= 20:
+                        sma20 = float(closes.tail(20).mean())
+
+                    if current_price is not None and sma10 is not None:
                         if current_price > sma10:
                             trend = "uptrend"
                         elif current_price < sma10:
@@ -58,6 +64,8 @@ def opportunities():
             except:
                 current_price = None
                 trend = "unknown"
+                sma10 = None
+                sma20 = None
 
             score = 50
             signal = "WATCH"
@@ -66,22 +74,31 @@ def opportunities():
             target = None
 
             if current_price is not None:
-
-                if trend == "uptrend":
-                    score = 80
-                    signal = "BUY"
-
-                elif trend == "downtrend":
-                    score = 40
-                    signal = "WEAK"
-
-                else:
-                    score = 60
-                    signal = "WATCH"
-
                 entry_price = round(current_price, 2)
                 stop_loss = round(current_price * 0.95, 2)
                 target = round(current_price * 1.10, 2)
+
+                if sma10 is not None and sma20 is not None:
+                    if current_price > sma10 and current_price > sma20:
+                        score = 90
+                        signal = "STRONG_BUY"
+                    elif current_price > sma10:
+                        score = 75
+                        signal = "BUY"
+                    elif abs(current_price - sma10) / sma10 < 0.01:
+                        score = 60
+                        signal = "WATCH"
+                    else:
+                        score = 40
+                        signal = "WEAK"
+
+                elif sma10 is not None:
+                    if current_price > sma10:
+                        score = 75
+                        signal = "BUY"
+                    else:
+                        score = 40
+                        signal = "WEAK"
 
             opportunities_list.append({
                 "symbol": symbol,
