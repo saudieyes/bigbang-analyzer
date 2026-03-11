@@ -55,24 +55,44 @@ def opportunities():
                         else:
                             trend = "neutral"
 
-                if current_price is None:
-                    try:
-                        current_price = float(stock.fast_info["lastPrice"])
-                    except:
-                        current_price = None
-
             except:
                 current_price = None
                 trend = "unknown"
+
+            score = 50
+            signal = "WATCH"
+            entry_price = None
+            stop_loss = None
+            target = None
+
+            if current_price is not None:
+
+                if trend == "uptrend":
+                    score = 80
+                    signal = "BUY"
+
+                elif trend == "downtrend":
+                    score = 40
+                    signal = "WEAK"
+
+                else:
+                    score = 60
+                    signal = "WATCH"
+
+                entry_price = round(current_price, 2)
+                stop_loss = round(current_price * 0.95, 2)
+                target = round(current_price * 1.10, 2)
 
             opportunities_list.append({
                 "symbol": symbol,
                 "company": company,
                 "current_price": current_price,
-                "signal": "watch",
-                "signal_label_ar": "مراقبة",
                 "trend": trend,
-                "reason": "تم جلب السعر الحقيقي وتحديد الاتجاه الأولي بناءً على متوسط 10 أيام"
+                "score": score,
+                "signal": signal,
+                "entry_price": entry_price,
+                "stop_loss": stop_loss,
+                "target": target
             })
 
     return {"opportunities": opportunities_list}
