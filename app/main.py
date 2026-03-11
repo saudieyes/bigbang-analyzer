@@ -34,8 +34,12 @@ def opportunities():
 
             current_price = None
             trend = "unknown"
-            sma10 = None
-            sma20 = None
+            score = 0
+            signal = "WEAK"
+            entry_price = None
+            stop_loss = None
+            target = None
+            reason = "لم يتم التحليل بعد"
 
             try:
                 stock = yf.Ticker(symbol)
@@ -46,59 +50,83 @@ def opportunities():
 
                     if len(closes) > 0:
                         current_price = float(closes.iloc[-1])
+                        entry_price = round(current_price, 2)
+                        stop_loss = round(current_price * 0.95, 2)
+                        target = round(current_price * 1.10, 2)
+
+                    sma10 = None
+                    sma20 = None
+                    close_5 = None
+                    close_10 = None
 
                     if len(closes) >= 10:
                         sma10 = float(closes.tail(10).mean())
+                        close_5 = float(closes.iloc[-6])
 
                     if len(closes) >= 20:
                         sma20 = float(closes.tail(20).mean())
+                        close_10 = float(closes.iloc[-11])
 
+                    # Trend
                     if current_price is not None and sma10 is not None:
                         if current_price > sma10:
                             trend = "uptrend"
+                            score += 30
                         elif current_price < sma10:
                             trend = "downtrend"
+                            score += 5
                         else:
                             trend = "neutral"
+                            score += 15
+
+                    # SMA20 confirmation
+                    if current_price is not None and sma20 is not None:
+                        if current_price > sma20:
+                            score += 25
+                        else:
+                            score += 5
+
+                    # Momentum vs 5 days ago
+                    if current_price is not None and close_5 is not None:
+                        if current_price > close_5:
+                            score += 20
+                        else:
+                            score += 5
+
+                    # Momentum vs 10 days ago
+                    if current_price is not None and close_10 is not None:
+                        if current_price > close_10:
+                            score += 15
+                        else:
+                            score += 5
+
+                    # Normalize
+                    if score > 100:
+                        score = 100
+
+                    # Signal
+                    if score >= 85:
+                        signal = "STRONG_BUY"
+                        reason = "الاتجاه صاعد والزخم قوي والسعر فوق المتوسطات"
+                    elif score >= 70:
+                        signal = "BUY"
+                        reason = "الاتجاه جيد والزخم إيجابي"
+                    elif score >= 55:
+                        signal = "WATCH"
+                        reason = "السهم مقبول لكنه يحتاج متابعة"
+                    else:
+                        signal = "WEAK"
+                        reason = "الزخم أو الاتجاه غير كافيين"
 
             except:
                 current_price = None
                 trend = "unknown"
-                sma10 = None
-                sma20 = None
-
-            score = 50
-            signal = "WATCH"
-            entry_price = None
-            stop_loss = None
-            target = None
-
-            if current_price is not None:
-                entry_price = round(current_price, 2)
-                stop_loss = round(current_price * 0.95, 2)
-                target = round(current_price * 1.10, 2)
-
-                if sma10 is not None and sma20 is not None:
-                    if current_price > sma10 and current_price > sma20:
-                        score = 90
-                        signal = "STRONG_BUY"
-                    elif current_price > sma10:
-                        score = 75
-                        signal = "BUY"
-                    elif abs(current_price - sma10) / sma10 < 0.01:
-                        score = 60
-                        signal = "WATCH"
-                    else:
-                        score = 40
-                        signal = "WEAK"
-
-                elif sma10 is not None:
-                    if current_price > sma10:
-                        score = 75
-                        signal = "BUY"
-                    else:
-                        score = 40
-                        signal = "WEAK"
+                score = 0
+                signal = "WEAK"
+                entry_price = None
+                stop_loss = None
+                target = None
+                reason = "تعذر جلب البيانات من السوق"
 
             opportunities_list.append({
                 "symbol": symbol,
@@ -109,8 +137,19 @@ def opportunities():
                 "signal": signal,
                 "entry_price": entry_price,
                 "stop_loss": stop_loss,
-                "target": target
+                "target": target,
+                "reason": reason
             })
+
+    # sort by score descending
+    opportunities_list = sorted(
+        opportunities_list,
+        key=lambda x: x["score"],
+        reverse=True
+    )
+
+    # top 10 only
+    opportunities_list = opportunities_list[:10]
 
     return {"opportunities": opportunities_list}
 
