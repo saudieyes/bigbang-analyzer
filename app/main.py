@@ -71,12 +71,9 @@ def opportunities():
                         if current_price > sma10:
                             trend = "uptrend"
                             score += 30
-                        elif current_price < sma10:
+                        else:
                             trend = "downtrend"
                             score += 5
-                        else:
-                            trend = "neutral"
-                            score += 15
 
                     if current_price is not None and sma20 is not None:
                         if current_price > sma20:
@@ -167,30 +164,50 @@ def portfolio_analysis(stocks: list = Body(...)):
             hist = stock.history(period="3mo")
 
             closes = hist["Close"].dropna()
-            current_price = float(closes.iloc[-1])
 
+            current_price = float(closes.iloc[-1])
             sma10 = float(closes.tail(10).mean())
+
+            close_5 = None
+            if len(closes) > 5:
+                close_5 = float(closes.iloc[-6])
 
             profit_percent = ((current_price - buy_price) / buy_price) * 100
 
             trend = "uptrend" if current_price > sma10 else "downtrend"
 
-            signal = "HOLD"
+            momentum = "positive"
+            if close_5 is not None:
+                if current_price > close_5:
+                    momentum = "positive"
+                else:
+                    momentum = "negative"
 
-            if trend == "uptrend" and profit_percent > 10:
-                signal = "HOLD"
-            elif trend == "uptrend" and profit_percent < 5:
+            signal = "HOLD"
+            reason = ""
+
+            if trend == "uptrend" and momentum == "positive" and profit_percent < 5:
                 signal = "ADD"
-            elif trend == "downtrend" and profit_percent > 10:
+                reason = "الاتجاه صاعد والزخم إيجابي والسهم قريب من سعر الشراء"
+
+            elif trend == "uptrend" and profit_percent >= 5:
+                signal = "HOLD"
+                reason = "السهم في اتجاه صاعد والربح جيد"
+
+            elif trend == "downtrend" and profit_percent > 5:
                 signal = "REDUCE"
+                reason = "السهم بدأ يضعف بعد ربح جيد"
+
             elif trend == "downtrend" and profit_percent < -5:
                 signal = "EXIT"
+                reason = "السهم في اتجاه هابط والخسارة تتزايد"
 
         except:
             current_price = None
             profit_percent = None
             trend = "unknown"
             signal = "HOLD"
+            reason = "تعذر جلب بيانات السهم"
 
         results.append({
             "symbol": symbol,
@@ -199,7 +216,8 @@ def portfolio_analysis(stocks: list = Body(...)):
             "current_price": current_price,
             "profit_percent": profit_percent,
             "trend": trend,
-            "signal": signal
+            "signal": signal,
+            "reason": reason
         })
 
     return {"portfolio": results}
@@ -213,52 +231,4 @@ def portfolio_test():
         {"symbol": "NVDA", "buy_price": 120, "quantity": 4}
     ]
 
-    results = []
-
-    for item in sample_stocks:
-
-        symbol = item["symbol"]
-        buy_price = item["buy_price"]
-        quantity = item["quantity"]
-
-        try:
-            stock = yf.Ticker(symbol)
-            hist = stock.history(period="3mo")
-
-            closes = hist["Close"].dropna()
-            current_price = float(closes.iloc[-1])
-
-            sma10 = float(closes.tail(10).mean())
-
-            profit_percent = ((current_price - buy_price) / buy_price) * 100
-
-            trend = "uptrend" if current_price > sma10 else "downtrend"
-
-            signal = "HOLD"
-
-            if trend == "uptrend" and profit_percent > 10:
-                signal = "HOLD"
-            elif trend == "uptrend" and profit_percent < 5:
-                signal = "ADD"
-            elif trend == "downtrend" and profit_percent > 10:
-                signal = "REDUCE"
-            elif trend == "downtrend" and profit_percent < -5:
-                signal = "EXIT"
-
-        except:
-            current_price = None
-            profit_percent = None
-            trend = "unknown"
-            signal = "HOLD"
-
-        results.append({
-            "symbol": symbol,
-            "quantity": quantity,
-            "buy_price": buy_price,
-            "current_price": current_price,
-            "profit_percent": profit_percent,
-            "trend": trend,
-            "signal": signal
-        })
-
-    return {"portfolio": results}
+    return portfolio_analysis(sample_stocks)
