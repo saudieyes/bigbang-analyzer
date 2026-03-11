@@ -67,7 +67,6 @@ def opportunities():
                         sma20 = float(closes.tail(20).mean())
                         close_10 = float(closes.iloc[-11])
 
-                    # Trend
                     if current_price is not None and sma10 is not None:
                         if current_price > sma10:
                             trend = "uptrend"
@@ -79,32 +78,27 @@ def opportunities():
                             trend = "neutral"
                             score += 15
 
-                    # SMA20 confirmation
                     if current_price is not None and sma20 is not None:
                         if current_price > sma20:
                             score += 25
                         else:
                             score += 5
 
-                    # Momentum vs 5 days ago
                     if current_price is not None and close_5 is not None:
                         if current_price > close_5:
                             score += 20
                         else:
                             score += 5
 
-                    # Momentum vs 10 days ago
                     if current_price is not None and close_10 is not None:
                         if current_price > close_10:
                             score += 15
                         else:
                             score += 5
 
-                    # Normalize
                     if score > 100:
                         score = 100
 
-                    # Signal
                     if score >= 85:
                         signal = "STRONG_BUY"
                         reason = "الاتجاه صاعد والزخم قوي والسعر فوق المتوسطات"
@@ -141,14 +135,17 @@ def opportunities():
                 "reason": reason
             })
 
-    # sort by score descending
     opportunities_list = sorted(
         opportunities_list,
         key=lambda x: x["score"],
         reverse=True
     )
 
-    # top 10 only
+    opportunities_list = [
+        item for item in opportunities_list
+        if item["signal"] in ["STRONG_BUY", "BUY"]
+    ]
+
     opportunities_list = opportunities_list[:10]
 
     return {"opportunities": opportunities_list}
