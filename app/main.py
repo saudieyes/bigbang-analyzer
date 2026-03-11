@@ -171,3 +171,63 @@ def portfolio_analysis(stocks: list = Body(...)):
         })
 
     return {"portfolio": results}
+    @app.get("/portfolio-test")
+def portfolio_test():
+    sample_stocks = [
+        {"symbol": "AAPL", "buy_price": 220, "quantity": 10},
+        {"symbol": "MSFT", "buy_price": 350, "quantity": 5},
+        {"symbol": "NVDA", "buy_price": 120, "quantity": 4}
+    ]
+
+    results = []
+
+    for item in sample_stocks:
+
+        symbol = item["symbol"]
+        buy_price = item["buy_price"]
+        quantity = item["quantity"]
+
+        try:
+            stock = yf.Ticker(symbol)
+            hist = stock.history(period="3mo")
+
+            closes = hist["Close"].dropna()
+            current_price = float(closes.iloc[-1])
+
+            sma10 = float(closes.tail(10).mean())
+
+            profit_percent = ((current_price - buy_price) / buy_price) * 100
+
+            trend = "uptrend" if current_price > sma10 else "downtrend"
+
+            signal = "HOLD"
+
+            if trend == "uptrend" and profit_percent > 10:
+                signal = "HOLD"
+
+            elif trend == "uptrend" and profit_percent < 5:
+                signal = "ADD"
+
+            elif trend == "downtrend" and profit_percent > 10:
+                signal = "REDUCE"
+
+            elif trend == "downtrend" and profit_percent < -5:
+                signal = "EXIT"
+
+        except:
+            current_price = None
+            profit_percent = None
+            trend = "unknown"
+            signal = "HOLD"
+
+        results.append({
+            "symbol": symbol,
+            "quantity": quantity,
+            "buy_price": buy_price,
+            "current_price": current_price,
+            "profit_percent": profit_percent,
+            "trend": trend,
+            "signal": signal
+        })
+
+    return {"portfolio": results}
