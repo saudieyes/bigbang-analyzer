@@ -107,6 +107,25 @@ def calculate_macd(closes):
     return round(macd_value, 4), round(signal_line, 4)
 
 
+def get_opportunity_type(signal, breakout_ready, breakout_score, rsi, entry_status):
+    if signal == "STRONG_BUY":
+        if breakout_ready == "HIGH" and breakout_score >= 80:
+            return "BIGBANG"
+
+        if breakout_ready == "MEDIUM" and breakout_score >= 60 and entry_status in ["IN_ZONE", "ABOVE_ZONE"]:
+            return "BIGBANG"
+
+        if entry_status == "IN_ZONE" and rsi is not None and 45 <= rsi <= 68:
+            return "GROWTH"
+
+        return "GROWTH"
+
+    if signal == "BUY":
+        return "GROWTH"
+
+    return "WATCH"
+
+
 def get_stock_data(symbol):
     current_price = None
     trend = "unknown"
@@ -126,6 +145,7 @@ def get_stock_data(symbol):
     entry_status = "unknown"
     breakout_ready = "LOW"
     breakout_score = 0
+    opportunity_type = "WATCH"
 
     try:
         stock = yf.Ticker(symbol)
@@ -315,6 +335,14 @@ def get_stock_data(symbol):
         if len(extra_notes) > 0:
             reason = reason + " - " + " - ".join(extra_notes)
 
+        opportunity_type = get_opportunity_type(
+            signal,
+            breakout_ready,
+            breakout_score,
+            rsi,
+            entry_status
+        )
+
     except:
         current_price = None
         trend = "unknown"
@@ -333,6 +361,7 @@ def get_stock_data(symbol):
         entry_status = "unknown"
         breakout_ready = "LOW"
         breakout_score = 0
+        opportunity_type = "WATCH"
 
     return {
         "current_price": current_price,
@@ -351,7 +380,8 @@ def get_stock_data(symbol):
         "entry_high": entry_high,
         "entry_status": entry_status,
         "breakout_ready": breakout_ready,
-        "breakout_score": breakout_score
+        "breakout_score": breakout_score,
+        "opportunity_type": opportunity_type
     }
 
 
@@ -363,7 +393,11 @@ def opportunities(refresh: int = Query(0)):
     current_time = time.time()
 
     if refresh != 1 and opportunities_cache and (current_time - cache_time < CACHE_DURATION):
-        return {"opportunities": opportunities_cache}
+        top_opportunity = opportunities_cache[0] if len(opportunities_cache) > 0 else None
+        return {
+            "top_opportunity": top_opportunity,
+            "opportunities": opportunities_cache
+        }
 
     opportunities_list = []
 
@@ -398,7 +432,8 @@ def opportunities(refresh: int = Query(0)):
                 "entry_high": data["entry_high"],
                 "entry_status": data["entry_status"],
                 "breakout_ready": data["breakout_ready"],
-                "breakout_score": data["breakout_score"]
+                "breakout_score": data["breakout_score"],
+                "opportunity_type": data["opportunity_type"]
             })
 
     opportunities_list = sorted(
@@ -417,7 +452,12 @@ def opportunities(refresh: int = Query(0)):
     opportunities_cache = opportunities_list
     cache_time = current_time
 
-    return {"opportunities": opportunities_list}
+    top_opportunity = opportunities_list[0] if len(opportunities_list) > 0 else None
+
+    return {
+        "top_opportunity": top_opportunity,
+        "opportunities": opportunities_list
+    }
 
 
 @app.get("/opportunities-simple")
