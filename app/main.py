@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Body
+from fastapi import FastAPI, Body, Query
 import csv
 import yfinance as yf
 import time
@@ -184,7 +184,6 @@ def get_stock_data(symbol):
             stop_loss = round(current_price * 0.95, 2)
             target = round(current_price * 1.10, 2)
 
-        # منطقة الدخول للسوينغ
         if sma10 is not None:
             entry_low = round(sma10 * 0.99, 2)
             entry_high = round(sma10 * 1.01, 2)
@@ -197,12 +196,10 @@ def get_stock_data(symbol):
                 else:
                     entry_status = "IN_ZONE"
 
-        # استعداد الاختراق
         if current_price is not None and high_20 is not None and low_20 is not None and current_price > 0:
             range_percent_20 = ((high_20 - low_20) / current_price) * 100.0
             near_high_percent = ((high_20 - current_price) / current_price) * 100.0
 
-            # ضغط سعري نسبي + قرب من القمة + دعم الحجم + MACD إيجابي
             if range_percent_20 <= 8:
                 breakout_score += 35
             elif range_percent_20 <= 12:
@@ -229,7 +226,6 @@ def get_stock_data(symbol):
             else:
                 breakout_ready = "LOW"
 
-        # الاتجاه
         if current_price is not None and sma10 is not None:
             if current_price > sma10:
                 trend = "uptrend"
@@ -244,7 +240,6 @@ def get_stock_data(symbol):
             else:
                 score += 5
 
-        # الزخم
         if current_price is not None and close_5 is not None:
             if current_price > close_5:
                 score += 15
@@ -257,7 +252,6 @@ def get_stock_data(symbol):
             else:
                 score += 5
 
-        # RSI
         if rsi is not None:
             if 45 <= rsi <= 65:
                 score += 15
@@ -266,7 +260,6 @@ def get_stock_data(symbol):
             else:
                 score += 0
 
-        # الحجم
         if volume_ratio is not None:
             if volume_ratio >= 1.3:
                 score += 10
@@ -275,7 +268,6 @@ def get_stock_data(symbol):
             else:
                 score += 0
 
-        # MACD
         if macd_value is not None and macd_signal is not None:
             if macd_value > macd_signal and macd_value > 0:
                 score += 20
@@ -284,11 +276,9 @@ def get_stock_data(symbol):
             else:
                 score += 0
 
-        # الدخول في المنطقة يعطي أفضلية بسيطة
         if entry_status == "IN_ZONE":
             score += 5
 
-        # جاهزية اختراق عالية تعطي أفضلية
         if breakout_ready == "HIGH":
             score += 5
 
@@ -308,7 +298,6 @@ def get_stock_data(symbol):
             signal = "WEAK"
             reason = "السهم لا يملك معطيات فنية كافية الآن"
 
-        # تحسين السبب حسب منطقة الدخول والاختراق
         extra_notes = []
 
         if entry_status == "IN_ZONE":
@@ -367,13 +356,13 @@ def get_stock_data(symbol):
 
 
 @app.get("/opportunities")
-def opportunities():
+def opportunities(refresh: int = Query(0)):
     global opportunities_cache
     global cache_time
 
     current_time = time.time()
 
-    if opportunities_cache and (current_time - cache_time < CACHE_DURATION):
+    if refresh != 1 and opportunities_cache and (current_time - cache_time < CACHE_DURATION):
         return {"opportunities": opportunities_cache}
 
     opportunities_list = []
