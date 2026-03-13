@@ -121,6 +121,12 @@ def get_stock_data(symbol):
     macd_value = None
     macd_signal = None
 
+    entry_low = None
+    entry_high = None
+    entry_status = "unknown"
+    breakout_ready = "LOW"
+    breakout_score = 0
+
     try:
         stock = yf.Ticker(symbol)
         hist = stock.history(period="3mo")
@@ -129,6 +135,8 @@ def get_stock_data(symbol):
             raise Exception("No history")
 
         closes = hist["Close"].dropna()
+        highs = hist["High"].dropna() if "High" in hist.columns else closes
+        lows = hist["Low"].dropna() if "Low" in hist.columns else closes
         volumes = hist["Volume"].dropna() if "Volume" in hist.columns else []
 
         sma10 = None
@@ -137,6 +145,10 @@ def get_stock_data(symbol):
         close_10 = None
         avg_volume_20 = None
         latest_volume = None
+        high_20 = None
+        low_20 = None
+        range_percent_20 = None
+        near_high_percent = None
 
         if len(closes) > 0:
             current_price = float(closes.iloc[-1])
@@ -154,6 +166,8 @@ def get_stock_data(symbol):
         if len(closes) >= 20:
             sma20 = float(closes.tail(20).mean())
             close_10 = float(closes.iloc[-11])
+            high_20 = float(highs.tail(20).max())
+            low_20 = float(lows.tail(20).min())
 
         if len(volumes) >= 20:
             avg_volume_20 = float(volumes.tail(20).mean())
@@ -169,6 +183,51 @@ def get_stock_data(symbol):
             entry_price = round(current_price, 2)
             stop_loss = round(current_price * 0.95, 2)
             target = round(current_price * 1.10, 2)
+
+        # منطقة الدخول للسوينغ
+        if sma10 is not None:
+            entry_low = round(sma10 * 0.99, 2)
+            entry_high = round(sma10 * 1.01, 2)
+
+            if current_price is not None:
+                if current_price < entry_low:
+                    entry_status = "BELOW_ZONE"
+                elif current_price > entry_high:
+                    entry_status = "ABOVE_ZONE"
+                else:
+                    entry_status = "IN_ZONE"
+
+        # استعداد الاختراق
+        if current_price is not None and high_20 is not None and low_20 is not None and current_price > 0:
+            range_percent_20 = ((high_20 - low_20) / current_price) * 100.0
+            near_high_percent = ((high_20 - current_price) / current_price) * 100.0
+
+            # ضغط سعري نسبي + قرب من القمة + دعم الحجم + MACD إيجابي
+            if range_percent_20 <= 8:
+                breakout_score += 35
+            elif range_percent_20 <= 12:
+                breakout_score += 20
+
+            if near_high_percent <= 2.5:
+                breakout_score += 35
+            elif near_high_percent <= 5:
+                breakout_score += 20
+
+            if volume_ratio is not None:
+                if volume_ratio >= 1.2:
+                    breakout_score += 20
+                elif volume_ratio >= 1.0:
+                    breakout_score += 10
+
+            if macd_value is not None and macd_signal is not None and macd_value > macd_signal:
+                breakout_score += 10
+
+            if breakout_score >= 80:
+                breakout_ready = "HIGH"
+            elif breakout_score >= 50:
+                breakout_ready = "MEDIUM"
+            else:
+                breakout_ready = "LOW"
 
         # الاتجاه
         if current_price is not None and sma10 is not None:
@@ -225,21 +284,47 @@ def get_stock_data(symbol):
             else:
                 score += 0
 
+        # الدخول في المنطقة يعطي أفضلية بسيطة
+        if entry_status == "IN_ZONE":
+            score += 5
+
+        # جاهزية اختراق عالية تعطي أفضلية
+        if breakout_ready == "HIGH":
+            score += 5
+
         if score > 100:
             score = 100
 
-        if score >= 82:
+        if score >= 84:
             signal = "STRONG_BUY"
             reason = "اتجاه صاعد وزخم جيد وRSI مناسب وMACD إيجابي مع دعم من حجم التداول"
-        elif score >= 68:
+        elif score >= 70:
             signal = "BUY"
             reason = "السهم جيد للمتابعة والشراء التدريجي مع تأكيد مقبول من المؤشرات"
-        elif score >= 52:
+        elif score >= 55:
             signal = "WATCH"
             reason = "السهم مقبول لكن يحتاج تأكيد أكبر قبل الدخول"
         else:
             signal = "WEAK"
             reason = "السهم لا يملك معطيات فنية كافية الآن"
+
+        # تحسين السبب حسب منطقة الدخول والاختراق
+        extra_notes = []
+
+        if entry_status == "IN_ZONE":
+            extra_notes.append("السهم داخل منطقة دخول جيدة")
+        elif entry_status == "ABOVE_ZONE":
+            extra_notes.append("السهم مرتفع قليلاً عن منطقة الدخول")
+        elif entry_status == "BELOW_ZONE":
+            extra_notes.append("السهم أسفل منطقة الدخول ويحتاج تأكيد ارتداد")
+
+        if breakout_ready == "HIGH":
+            extra_notes.append("جاهزية الاختراق عالية")
+        elif breakout_ready == "MEDIUM":
+            extra_notes.append("جاهزية الاختراق متوسطة")
+
+        if len(extra_notes) > 0:
+            reason = reason + " - " + " - ".join(extra_notes)
 
     except:
         current_price = None
@@ -254,6 +339,11 @@ def get_stock_data(symbol):
         volume_ratio = None
         macd_value = None
         macd_signal = None
+        entry_low = None
+        entry_high = None
+        entry_status = "unknown"
+        breakout_ready = "LOW"
+        breakout_score = 0
 
     return {
         "current_price": current_price,
@@ -267,7 +357,12 @@ def get_stock_data(symbol):
         "rsi": rsi,
         "volume_ratio": round(volume_ratio, 2) if volume_ratio is not None else None,
         "macd": macd_value,
-        "macd_signal": macd_signal
+        "macd_signal": macd_signal,
+        "entry_low": entry_low,
+        "entry_high": entry_high,
+        "entry_status": entry_status,
+        "breakout_ready": breakout_ready,
+        "breakout_score": breakout_score
     }
 
 
@@ -309,7 +404,12 @@ def opportunities():
                 "rsi": data["rsi"],
                 "volume_ratio": data["volume_ratio"],
                 "macd": data["macd"],
-                "macd_signal": data["macd_signal"]
+                "macd_signal": data["macd_signal"],
+                "entry_low": data["entry_low"],
+                "entry_high": data["entry_high"],
+                "entry_status": data["entry_status"],
+                "breakout_ready": data["breakout_ready"],
+                "breakout_score": data["breakout_score"]
             })
 
     opportunities_list = sorted(
