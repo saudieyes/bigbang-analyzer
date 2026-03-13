@@ -54,6 +54,59 @@ def calculate_rsi(closes, period=14):
     return round(rsi, 2)
 
 
+def calculate_ema(values, period):
+    if len(values) < period:
+        return None
+
+    multiplier = 2 / (period + 1)
+    ema = float(values.iloc[0])
+
+    for i in range(1, len(values)):
+        ema = (float(values.iloc[i]) - ema) * multiplier + ema
+
+    return ema
+
+
+def calculate_macd(closes):
+    if len(closes) < 35:
+        return None, None
+
+    ema12_list = []
+    ema26_list = []
+
+    for i in range(len(closes)):
+        sub = closes.iloc[:i + 1]
+
+        ema12 = calculate_ema(sub, 12)
+        ema26 = calculate_ema(sub, 26)
+
+        if ema12 is not None and ema26 is not None:
+            ema12_list.append(ema12)
+            ema26_list.append(ema26)
+
+    if len(ema12_list) == 0 or len(ema26_list) == 0:
+        return None, None
+
+    macd_series = []
+    min_len = min(len(ema12_list), len(ema26_list))
+
+    for i in range(min_len):
+        macd_series.append(ema12_list[i] - ema26_list[i])
+
+    if len(macd_series) < 9:
+        return None, None
+
+    signal_line = macd_series[0]
+    multiplier = 2 / (9 + 1)
+
+    for i in range(1, len(macd_series)):
+        signal_line = (macd_series[i] - signal_line) * multiplier + signal_line
+
+    macd_value = macd_series[-1]
+
+    return round(macd_value, 4), round(signal_line, 4)
+
+
 def get_stock_data(symbol):
     current_price = None
     trend = "unknown"
@@ -65,6 +118,8 @@ def get_stock_data(symbol):
     reason = "لم يتم التحليل بعد"
     rsi = None
     volume_ratio = None
+    macd_value = None
+    macd_signal = None
 
     try:
         stock = yf.Ticker(symbol)
@@ -108,12 +163,14 @@ def get_stock_data(symbol):
             volume_ratio = latest_volume / avg_volume_20
 
         rsi = calculate_rsi(closes, 14)
+        macd_value, macd_signal = calculate_macd(closes)
 
         if current_price is not None:
             entry_price = round(current_price, 2)
             stop_loss = round(current_price * 0.95, 2)
             target = round(current_price * 1.10, 2)
 
+        # الاتجاه
         if current_price is not None and sma10 is not None:
             if current_price > sma10:
                 trend = "uptrend"
@@ -128,6 +185,7 @@ def get_stock_data(symbol):
             else:
                 score += 5
 
+        # الزخم
         if current_price is not None and close_5 is not None:
             if current_price > close_5:
                 score += 15
@@ -140,14 +198,16 @@ def get_stock_data(symbol):
             else:
                 score += 5
 
+        # RSI
         if rsi is not None:
             if 45 <= rsi <= 65:
-                score += 20
+                score += 15
             elif 35 <= rsi < 45 or 65 < rsi <= 72:
-                score += 10
+                score += 8
             else:
                 score += 0
 
+        # الحجم
         if volume_ratio is not None:
             if volume_ratio >= 1.3:
                 score += 10
@@ -156,18 +216,27 @@ def get_stock_data(symbol):
             else:
                 score += 0
 
+        # MACD
+        if macd_value is not None and macd_signal is not None:
+            if macd_value > macd_signal and macd_value > 0:
+                score += 20
+            elif macd_value > macd_signal:
+                score += 10
+            else:
+                score += 0
+
         if score > 100:
             score = 100
 
-        if score >= 80:
+        if score >= 82:
             signal = "STRONG_BUY"
-            reason = "اتجاه صاعد وزخم جيد وRSI مناسب مع دعم من حجم التداول"
-        elif score >= 65:
+            reason = "اتجاه صاعد وزخم جيد وRSI مناسب وMACD إيجابي مع دعم من حجم التداول"
+        elif score >= 68:
             signal = "BUY"
-            reason = "السهم جيد للمتابعة والشراء التدريجي"
-        elif score >= 50:
+            reason = "السهم جيد للمتابعة والشراء التدريجي مع تأكيد مقبول من المؤشرات"
+        elif score >= 52:
             signal = "WATCH"
-            reason = "السهم مقبول لكن يحتاج تأكيد أكبر"
+            reason = "السهم مقبول لكن يحتاج تأكيد أكبر قبل الدخول"
         else:
             signal = "WEAK"
             reason = "السهم لا يملك معطيات فنية كافية الآن"
@@ -183,6 +252,8 @@ def get_stock_data(symbol):
         reason = "تعذر جلب البيانات من السوق"
         rsi = None
         volume_ratio = None
+        macd_value = None
+        macd_signal = None
 
     return {
         "current_price": current_price,
@@ -194,7 +265,9 @@ def get_stock_data(symbol):
         "target": target,
         "reason": reason,
         "rsi": rsi,
-        "volume_ratio": round(volume_ratio, 2) if volume_ratio is not None else None
+        "volume_ratio": round(volume_ratio, 2) if volume_ratio is not None else None,
+        "macd": macd_value,
+        "macd_signal": macd_signal
     }
 
 
@@ -234,7 +307,9 @@ def opportunities():
                 "target": data["target"],
                 "reason": data["reason"],
                 "rsi": data["rsi"],
-                "volume_ratio": data["volume_ratio"]
+                "volume_ratio": data["volume_ratio"],
+                "macd": data["macd"],
+                "macd_signal": data["macd_signal"]
             })
 
     opportunities_list = sorted(
