@@ -329,6 +329,8 @@ def portfolio_analysis(stocks: list = Body(...)):
             if current_price is not None and close_5 is not None:
                 momentum = "positive" if current_price > close_5 else "negative"
 
+            rsi = calculate_rsi(closes, 14)
+
             signal = "HOLD"
             reason = ""
 
@@ -358,6 +360,7 @@ def portfolio_analysis(stocks: list = Body(...)):
             trend = "unknown"
             signal = "HOLD"
             reason = "تعذر جلب بيانات السهم"
+            rsi = None
 
         results.append({
             "symbol": symbol,
@@ -367,7 +370,8 @@ def portfolio_analysis(stocks: list = Body(...)):
             "profit_percent": profit_percent,
             "trend": trend,
             "signal": signal,
-            "reason": reason
+            "reason": reason,
+            "rsi": rsi
         })
 
     return {"portfolio": results}
