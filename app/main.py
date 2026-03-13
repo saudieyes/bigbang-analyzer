@@ -19,6 +19,36 @@ def health():
     return {"status": "BIGBANG engine running"}
 
 
+def calculate_rsi(closes, period=14):
+    if len(closes) < period + 1:
+        return None
+
+    gains = []
+    losses = []
+
+    for i in range(1, len(closes)):
+        diff = float(closes.iloc[i] - closes.iloc[i - 1])
+        if diff > 0:
+            gains.append(diff)
+            losses.append(0)
+        else:
+            gains.append(0)
+            losses.append(abs(diff))
+
+    recent_gains = gains[-period:]
+    recent_losses = losses[-period:]
+
+    avg_gain = sum(recent_gains) / period
+    avg_loss = sum(recent_losses) / period
+
+    if avg_loss == 0:
+        return 100.0
+
+    rs = avg_gain / avg_loss
+    rsi = 100 - (100 / (1 + rs))
+    return round(rsi, 2)
+
+
 def get_stock_data(symbol):
     current_price = None
     trend = "unknown"
@@ -28,17 +58,25 @@ def get_stock_data(symbol):
     stop_loss = None
     target = None
     reason = "لم يتم التحليل بعد"
+    rsi = None
+    volume_ratio = None
 
     try:
         stock = yf.Ticker(symbol)
         hist = stock.history(period="3mo")
 
-        closes = hist["Close"].dropna() if not hist.empty else []
+        if hist.empty:
+            raise Exception("No history")
+
+        closes = hist["Close"].dropna()
+        volumes = hist["Volume"].dropna() if "Volume" in hist.columns else []
 
         sma10 = None
         sma20 = None
         close_5 = None
         close_10 = None
+        avg_volume_20 = None
+        latest_volume = None
 
         if len(closes) > 0:
             current_price = float(closes.iloc[-1])
@@ -57,52 +95,82 @@ def get_stock_data(symbol):
             sma20 = float(closes.tail(20).mean())
             close_10 = float(closes.iloc[-11])
 
+        if len(volumes) >= 20:
+            avg_volume_20 = float(volumes.tail(20).mean())
+            latest_volume = float(volumes.iloc[-1])
+
+        if latest_volume is not None and avg_volume_20 is not None and avg_volume_20 > 0:
+            volume_ratio = latest_volume / avg_volume_20
+
+        rsi = calculate_rsi(closes, 14)
+
         if current_price is not None:
             entry_price = round(current_price, 2)
             stop_loss = round(current_price * 0.95, 2)
             target = round(current_price * 1.10, 2)
 
+        # 1) الاتجاه
         if current_price is not None and sma10 is not None:
             if current_price > sma10:
                 trend = "uptrend"
-                score += 30
+                score += 25
             else:
                 trend = "downtrend"
                 score += 5
 
         if current_price is not None and sma20 is not None:
             if current_price > sma20:
-                score += 25
+                score += 20
             else:
                 score += 5
 
+        # 2) الزخم
         if current_price is not None and close_5 is not None:
             if current_price > close_5:
-                score += 20
+                score += 15
             else:
                 score += 5
 
         if current_price is not None and close_10 is not None:
             if current_price > close_10:
-                score += 15
+                score += 10
             else:
                 score += 5
+
+        # 3) RSI
+        if rsi is not None:
+            if 45 <= rsi <= 65:
+                score += 20
+            elif 35 <= rsi < 45 or 65 < rsi <= 72:
+                score += 10
+            else:
+                score += 0
+
+        # 4) الحجم
+        if volume_ratio is not None:
+            if volume_ratio >= 1.3:
+                score += 10
+            elif volume_ratio >= 1.0:
+                score += 5
+            else:
+                score += 0
 
         if score > 100:
             score = 100
 
-        if score >= 85:
+        # التوصية النهائية
+        if score >= 80:
             signal = "STRONG_BUY"
-            reason = "الاتجاه صاعد والزخم قوي والسعر فوق المتوسطات"
-        elif score >= 70:
+            reason = "اتجاه صاعد وزخم جيد وRSI مناسب مع دعم من حجم التداول"
+        elif score >= 65:
             signal = "BUY"
-            reason = "الاتجاه جيد والزخم إيجابي"
-        elif score >= 55:
+            reason = "السهم جيد للمتابعة والشراء التدريجي"
+        elif score >= 50:
             signal = "WATCH"
-            reason = "السهم مقبول لكنه يحتاج متابعة"
+            reason = "السهم مقبول لكن يحتاج تأكيد أكبر"
         else:
             signal = "WEAK"
-            reason = "الزخم أو الاتجاه غير كافيين"
+            reason = "السهم لا يملك معطيات فنية كافية الآن"
 
     except:
         current_price = None
@@ -113,6 +181,8 @@ def get_stock_data(symbol):
         stop_loss = None
         target = None
         reason = "تعذر جلب البيانات من السوق"
+        rsi = None
+        volume_ratio = None
 
     return {
         "current_price": current_price,
@@ -122,7 +192,9 @@ def get_stock_data(symbol):
         "entry_price": entry_price,
         "stop_loss": stop_loss,
         "target": target,
-        "reason": reason
+        "reason": reason,
+        "rsi": rsi,
+        "volume_ratio": round(volume_ratio, 2) if volume_ratio is not None else None
     }
 
 
@@ -152,7 +224,9 @@ def opportunities():
                 "entry_price": data["entry_price"],
                 "stop_loss": data["stop_loss"],
                 "target": data["target"],
-                "reason": data["reason"]
+                "reason": data["reason"],
+                "rsi": data["rsi"],
+                "volume_ratio": data["volume_ratio"]
             })
 
     opportunities_list = sorted(
@@ -193,6 +267,7 @@ def opportunities_simple():
         lines.append(f"{symbol} - {signal_ar}")
 
     return {"lines": lines}
+
 
 @app.post("/portfolio-analysis")
 def portfolio_analysis(stocks: list = Body(...)):
