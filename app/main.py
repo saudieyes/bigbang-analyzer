@@ -180,10 +180,19 @@ def opportunities_simple():
     for item in data["opportunities"]:
         symbol = item["symbol"]
         signal = item["signal"]
-        lines.append(f"{symbol} - {signal}")
+
+        if signal == "STRONG_BUY":
+            signal_ar = "شراء قوي"
+        elif signal == "BUY":
+            signal_ar = "شراء"
+        elif signal == "WATCH":
+            signal_ar = "مراقبة"
+        else:
+            signal_ar = "ضعيف"
+
+        lines.append(f"{symbol} - {signal_ar}")
 
     return {"lines": lines}
-
 
 @app.post("/portfolio-analysis")
 def portfolio_analysis(stocks: list = Body(...)):
