@@ -354,6 +354,13 @@ def portfolio_analysis(stocks: list = Body(...)):
                 signal = "HOLD"
                 reason = "تعذر جلب السعر الحالي"
 
+            stop_loss = None
+            target = None
+
+            if current_price is not None:
+                stop_loss = round(current_price * 0.95, 2)
+                target = round(current_price * 1.12, 2)
+
         except:
             current_price = None
             profit_percent = None
@@ -361,6 +368,8 @@ def portfolio_analysis(stocks: list = Body(...)):
             signal = "HOLD"
             reason = "تعذر جلب بيانات السهم"
             rsi = None
+            stop_loss = None
+            target = None
 
         results.append({
             "symbol": symbol,
@@ -371,7 +380,9 @@ def portfolio_analysis(stocks: list = Body(...)):
             "trend": trend,
             "signal": signal,
             "reason": reason,
-            "rsi": rsi
+            "rsi": rsi,
+            "stop_loss": stop_loss,
+            "target": target
         })
 
     return {"portfolio": results}
