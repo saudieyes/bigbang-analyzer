@@ -134,8 +134,11 @@ def opportunities():
         reader = csv.DictReader(file)
 
         for row in reader:
-            symbol = row["symbol"]
-            company = row["company"]
+            symbol = row.get("Symbol", "").strip()
+            company = row.get("Company Name", "").strip()
+
+            if symbol == "":
+                continue
 
             data = get_stock_data(symbol)
 
