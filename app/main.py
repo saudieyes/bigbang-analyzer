@@ -1,8 +1,13 @@
 from fastapi import FastAPI, Body
 import csv
 import yfinance as yf
+import time
 
 app = FastAPI()
+
+opportunities_cache = None
+cache_time = 0
+CACHE_DURATION = 600
 
 
 @app.get("/")
@@ -109,7 +114,6 @@ def get_stock_data(symbol):
             stop_loss = round(current_price * 0.95, 2)
             target = round(current_price * 1.10, 2)
 
-        # 1) الاتجاه
         if current_price is not None and sma10 is not None:
             if current_price > sma10:
                 trend = "uptrend"
@@ -124,7 +128,6 @@ def get_stock_data(symbol):
             else:
                 score += 5
 
-        # 2) الزخم
         if current_price is not None and close_5 is not None:
             if current_price > close_5:
                 score += 15
@@ -137,7 +140,6 @@ def get_stock_data(symbol):
             else:
                 score += 5
 
-        # 3) RSI
         if rsi is not None:
             if 45 <= rsi <= 65:
                 score += 20
@@ -146,7 +148,6 @@ def get_stock_data(symbol):
             else:
                 score += 0
 
-        # 4) الحجم
         if volume_ratio is not None:
             if volume_ratio >= 1.3:
                 score += 10
@@ -158,7 +159,6 @@ def get_stock_data(symbol):
         if score > 100:
             score = 100
 
-        # التوصية النهائية
         if score >= 80:
             signal = "STRONG_BUY"
             reason = "اتجاه صاعد وزخم جيد وRSI مناسب مع دعم من حجم التداول"
@@ -200,6 +200,14 @@ def get_stock_data(symbol):
 
 @app.get("/opportunities")
 def opportunities():
+    global opportunities_cache
+    global cache_time
+
+    current_time = time.time()
+
+    if opportunities_cache and (current_time - cache_time < CACHE_DURATION):
+        return {"opportunities": opportunities_cache}
+
     opportunities_list = []
 
     with open("shariah_stocks.csv", "r", encoding="utf-8") as file:
@@ -241,6 +249,9 @@ def opportunities():
     ]
 
     opportunities_list = opportunities_list[:10]
+
+    opportunities_cache = opportunities_list
+    cache_time = current_time
 
     return {"opportunities": opportunities_list}
 
