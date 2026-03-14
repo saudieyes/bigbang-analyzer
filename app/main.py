@@ -9,6 +9,9 @@ opportunities_cache = None
 cache_time = 0
 CACHE_DURATION = 600
 
+portfolio_cache = {}
+PORTFOLIO_CACHE_DURATION = 600
+
 
 @app.get("/")
 def home():
@@ -59,52 +62,54 @@ def calculate_rsi(closes, period=14):
     return round(rsi, 2)
 
 
-def calculate_ema(values, period):
+def calculate_ema_series(values, period):
     if len(values) < period:
-        return None
+        return []
 
     multiplier = 2 / (period + 1)
-    ema = float(values.iloc[0])
+    ema_values = []
 
-    for i in range(1, len(values)):
-        ema = (float(values.iloc[i]) - ema) * multiplier + ema
+    sma_start = float(values.iloc[:period].mean())
+    ema_values.append(sma_start)
 
-    return ema
+    for i in range(period, len(values)):
+        ema_next = (float(values.iloc[i]) - ema_values[-1]) * multiplier + ema_values[-1]
+        ema_values.append(ema_next)
+
+    return ema_values
 
 
 def calculate_macd(closes):
+    """
+    نسخة أسرع بكثير من النسخة القديمة.
+    """
     if len(closes) < 35:
         return None, None
 
-    ema12_list = []
-    ema26_list = []
+    ema12_series = calculate_ema_series(closes, 12)
+    ema26_series = calculate_ema_series(closes, 26)
 
-    for i in range(len(closes)):
-        sub = closes.iloc[:i + 1]
-
-        ema12 = calculate_ema(sub, 12)
-        ema26 = calculate_ema(sub, 26)
-
-        if ema12 is not None and ema26 is not None:
-            ema12_list.append(ema12)
-            ema26_list.append(ema26)
-
-    if len(ema12_list) == 0 or len(ema26_list) == 0:
+    if len(ema12_series) == 0 or len(ema26_series) == 0:
         return None, None
 
-    macd_series = []
-    min_len = min(len(ema12_list), len(ema26_list))
+    # نطابق السلسلتين على آخر جزء مشترك
+    offset = len(ema12_series) - len(ema26_series)
+    if offset < 0:
+        return None, None
 
-    for i in range(min_len):
-        macd_series.append(ema12_list[i] - ema26_list[i])
+    ema12_aligned = ema12_series[offset:]
+
+    macd_series = []
+    for i in range(len(ema26_series)):
+        macd_series.append(ema12_aligned[i] - ema26_series[i])
 
     if len(macd_series) < 9:
         return None, None
 
-    signal_line = macd_series[0]
     multiplier = 2 / (9 + 1)
+    signal_line = sum(macd_series[:9]) / 9
 
-    for i in range(1, len(macd_series)):
+    for i in range(9, len(macd_series)):
         signal_line = (macd_series[i] - signal_line) * multiplier + signal_line
 
     macd_value = macd_series[-1]
@@ -245,8 +250,6 @@ def get_stock_data(symbol):
         latest_volume = None
         high_20 = None
         low_20 = None
-        range_percent_20 = None
-        near_high_percent = None
 
         if len(closes) > 0:
             current_price = float(closes.iloc[-1])
@@ -701,8 +704,41 @@ def make_rotation_suggestion(worst_position, bigbang_opportunity):
     return f"راقب {bigbang_symbol} كفرصة قوية، ولا توجد ضرورة حالياً لتغيير مكونات المحفظة"
 
 
+def build_portfolio_cache_key(stocks):
+    key_parts = []
+
+    for item in stocks:
+        symbol = str(item.get("symbol", "")).strip().upper()
+        buy_price = str(item.get("buy_price", ""))
+        quantity = str(item.get("quantity", ""))
+
+        key_parts.append(symbol + "|" + buy_price + "|" + quantity)
+
+    key_parts.sort()
+    return "||".join(key_parts)
+
+
+def get_cached_bigbang():
+    global opportunities_cache
+
+    if opportunities_cache is None:
+        return None
+
+    return opportunities_cache.get("bigbang_opportunity")
+
+
 @app.post("/portfolio-analysis")
 def portfolio_analysis(stocks: list = Body(...)):
+    global portfolio_cache
+
+    cache_key = build_portfolio_cache_key(stocks)
+    current_time = time.time()
+
+    if cache_key in portfolio_cache:
+        cached_item = portfolio_cache[cache_key]
+        if current_time - cached_item["time"] < PORTFOLIO_CACHE_DURATION:
+            return cached_item["data"]
+
     results = []
 
     for item in stocks:
@@ -718,7 +754,6 @@ def portfolio_analysis(stocks: list = Body(...)):
                 raise Exception("No history")
 
             closes = hist["Close"].dropna()
-            volumes = hist["Volume"].dropna() if "Volume" in hist.columns else []
 
             current_price = None
             if len(closes) > 0:
@@ -836,18 +871,23 @@ def portfolio_analysis(stocks: list = Body(...)):
         best_position = sorted(results, key=rank_portfolio_item, reverse=True)[0]
         worst_position = sorted(results, key=rank_portfolio_item)[0]
 
-    opportunities_data = build_opportunities_response(0)
-    bigbang_opportunity = opportunities_data.get("bigbang_opportunity")
-
+    bigbang_opportunity = get_cached_bigbang()
     rotation_suggestion = make_rotation_suggestion(worst_position, bigbang_opportunity)
 
-    return {
+    response = {
         "best_position": best_position,
         "worst_position": worst_position,
         "bigbang_opportunity": bigbang_opportunity,
         "rotation_suggestion": rotation_suggestion,
         "portfolio": results
     }
+
+    portfolio_cache[cache_key] = {
+        "time": current_time,
+        "data": response
+    }
+
+    return response
 
 
 @app.get("/portfolio-test")
