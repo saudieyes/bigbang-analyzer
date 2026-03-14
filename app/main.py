@@ -520,7 +520,6 @@ def portfolio_analysis(stocks: list = Body(...)):
             macd_signal = None
             avg_volume_20 = None
             latest_volume = None
-            volume_ratio = None
 
             if len(closes) >= 10:
                 sma10 = float(closes.tail(10).mean())
@@ -532,9 +531,6 @@ def portfolio_analysis(stocks: list = Body(...)):
             if len(volumes) >= 20:
                 avg_volume_20 = float(volumes.tail(20).mean())
                 latest_volume = float(volumes.iloc[-1])
-
-            if latest_volume is not None and avg_volume_20 is not None and avg_volume_20 > 0:
-                volume_ratio = latest_volume / avg_volume_20
 
             if current_price is not None and sma10 is not None:
                 trend = "uptrend" if current_price > sma10 else "downtrend"
@@ -624,6 +620,14 @@ def portfolio_analysis(stocks: list = Body(...)):
                 signal = "HOLD"
                 reason = "تعذر جلب السعر الحالي"
 
+            if reason == "":
+                if trend == "uptrend":
+                    reason = "السهم ما زال متماسكًا لكن لا توجد إشارة قوية لزيادة الكمية الآن"
+                elif trend == "downtrend":
+                    reason = "السهم يمر بمرحلة ضعف لكن لم يعطِ إشارة خروج واضحة بعد"
+                else:
+                    reason = "البيانات الحالية غير كافية لاتخاذ قرار أقوى من الاحتفاظ"
+
             stop_loss = None
             target = None
             add_zone_low = None
@@ -686,15 +690,15 @@ def portfolio_analysis(stocks: list = Body(...)):
         elif item["signal"] == "EXIT":
             signal_score = 1
 
-        risk_penalty = 0
+        risk_bonus = 0
         if item["risk_level"] == "LOW":
-            risk_penalty = 2
+            risk_bonus = 2
         elif item["risk_level"] == "MEDIUM":
-            risk_penalty = 1
+            risk_bonus = 1
         else:
-            risk_penalty = 0
+            risk_bonus = 0
 
-        return (signal_score * 100) + item["confidence"] + risk_penalty
+        return (signal_score * 100) + item["confidence"] + risk_bonus
 
     best_position = None
     worst_position = None
