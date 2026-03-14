@@ -24,6 +24,10 @@ def health():
     return {"status": "BIGBANG engine running"}
 
 
+# -----------------------------------
+# مؤشرات فنية
+# -----------------------------------
+
 def calculate_rsi(closes, period=14):
     if len(closes) < period + 1:
         return None
@@ -33,6 +37,7 @@ def calculate_rsi(closes, period=14):
 
     for i in range(1, len(closes)):
         diff = float(closes.iloc[i] - closes.iloc[i - 1])
+
         if diff > 0:
             gains.append(diff)
             losses.append(0)
@@ -107,23 +112,96 @@ def calculate_macd(closes):
     return round(macd_value, 4), round(signal_line, 4)
 
 
-def get_opportunity_type(signal, breakout_ready, breakout_score, rsi, entry_status):
-    if signal == "STRONG_BUY":
-        if breakout_ready == "HIGH" and breakout_score >= 80:
-            return "BIGBANG"
+# -----------------------------------
+# منطق الفرص
+# -----------------------------------
 
-        if breakout_ready == "MEDIUM" and breakout_score >= 60 and entry_status in ["IN_ZONE", "ABOVE_ZONE"]:
-            return "BIGBANG"
+def is_true_bigbang(
+    signal,
+    trend,
+    rsi,
+    macd_value,
+    macd_signal,
+    volume_ratio,
+    entry_status,
+    breakout_ready,
+    breakout_score
+):
+    if signal != "STRONG_BUY":
+        return False
 
-        if entry_status == "IN_ZONE" and rsi is not None and 45 <= rsi <= 68:
-            return "GROWTH"
+    if trend != "uptrend":
+        return False
 
-        return "GROWTH"
+    if breakout_ready != "HIGH" or breakout_score < 80:
+        return False
 
-    if signal == "BUY":
+    if entry_status != "IN_ZONE":
+        return False
+
+    if rsi is None or not (48 <= rsi <= 65):
+        return False
+
+    if macd_value is None or macd_signal is None:
+        return False
+
+    if not (macd_value > macd_signal and macd_value > 0):
+        return False
+
+    if volume_ratio is None or volume_ratio < 1.0:
+        return False
+
+    return True
+
+
+def get_opportunity_type(
+    signal,
+    trend,
+    breakout_ready,
+    breakout_score,
+    rsi,
+    entry_status,
+    macd_value,
+    macd_signal,
+    volume_ratio
+):
+    if is_true_bigbang(
+        signal,
+        trend,
+        rsi,
+        macd_value,
+        macd_signal,
+        volume_ratio,
+        entry_status,
+        breakout_ready,
+        breakout_score
+    ):
+        return "BIGBANG"
+
+    if signal in ["STRONG_BUY", "BUY"] and trend == "uptrend":
         return "GROWTH"
 
     return "WATCH"
+
+
+def opportunity_sort_key(item):
+    priority = 0
+
+    if item["opportunity_type"] == "BIGBANG":
+        priority = 4
+    elif item["opportunity_type"] == "GROWTH" and item["entry_status"] == "IN_ZONE":
+        priority = 3
+    elif item["opportunity_type"] == "GROWTH" and item["entry_status"] == "ABOVE_ZONE":
+        priority = 2
+    elif item["signal"] == "WATCH":
+        priority = 1
+
+    return (
+        priority,
+        item.get("breakout_score", 0),
+        item.get("score", 0),
+        1 if item.get("entry_status") == "IN_ZONE" else 0
+    )
 
 
 def get_stock_data(symbol):
@@ -241,7 +319,7 @@ def get_stock_data(symbol):
 
             if breakout_score >= 80:
                 breakout_ready = "HIGH"
-            elif breakout_score >= 50:
+            elif breakout_score >= 60:
                 breakout_ready = "MEDIUM"
             else:
                 breakout_ready = "LOW"
@@ -337,10 +415,14 @@ def get_stock_data(symbol):
 
         opportunity_type = get_opportunity_type(
             signal,
+            trend,
             breakout_ready,
             breakout_score,
             rsi,
-            entry_status
+            entry_status,
+            macd_value,
+            macd_signal,
+            volume_ratio
         )
 
     except:
@@ -364,6 +446,7 @@ def get_stock_data(symbol):
         opportunity_type = "WATCH"
 
     return {
+        "symbol": symbol,
         "current_price": current_price,
         "trend": trend,
         "score": score,
@@ -385,19 +468,14 @@ def get_stock_data(symbol):
     }
 
 
-@app.get("/opportunities")
-def opportunities(refresh: int = Query(0)):
+def build_opportunities_response(refresh=0):
     global opportunities_cache
     global cache_time
 
     current_time = time.time()
 
     if refresh != 1 and opportunities_cache and (current_time - cache_time < CACHE_DURATION):
-        top_opportunity = opportunities_cache[0] if len(opportunities_cache) > 0 else None
-        return {
-            "top_opportunity": top_opportunity,
-            "opportunities": opportunities_cache
-        }
+        return opportunities_cache
 
     opportunities_list = []
 
@@ -406,63 +484,55 @@ def opportunities(refresh: int = Query(0)):
 
         for row in reader:
             symbol = row.get("Symbol", "").strip()
-            company = row.get("Company Name", "").strip()
 
             if symbol == "":
                 continue
 
             data = get_stock_data(symbol)
 
-            opportunities_list.append({
-                "symbol": symbol,
-                "company": company,
-                "current_price": data["current_price"],
-                "trend": data["trend"],
-                "score": data["score"],
-                "signal": data["signal"],
-                "entry_price": data["entry_price"],
-                "stop_loss": data["stop_loss"],
-                "target": data["target"],
-                "reason": data["reason"],
-                "rsi": data["rsi"],
-                "volume_ratio": data["volume_ratio"],
-                "macd": data["macd"],
-                "macd_signal": data["macd_signal"],
-                "entry_low": data["entry_low"],
-                "entry_high": data["entry_high"],
-                "entry_status": data["entry_status"],
-                "breakout_ready": data["breakout_ready"],
-                "breakout_score": data["breakout_score"],
-                "opportunity_type": data["opportunity_type"]
-            })
-
-    opportunities_list = sorted(
-        opportunities_list,
-        key=lambda x: x["score"],
-        reverse=True
-    )
+            if data is not None:
+                opportunities_list.append(data)
 
     opportunities_list = [
         item for item in opportunities_list
         if item["signal"] in ["STRONG_BUY", "BUY", "WATCH"]
     ]
 
-    opportunities_list = opportunities_list[:10]
-
-    opportunities_cache = opportunities_list
-    cache_time = current_time
+    opportunities_list = sorted(
+        opportunities_list,
+        key=opportunity_sort_key,
+        reverse=True
+    )
 
     top_opportunity = opportunities_list[0] if len(opportunities_list) > 0 else None
 
-    return {
+    bigbang_opportunity = None
+    for item in opportunities_list:
+        if item["opportunity_type"] == "BIGBANG":
+            bigbang_opportunity = item
+            break
+
+    response = {
+        "bigbang_opportunity": bigbang_opportunity,
         "top_opportunity": top_opportunity,
-        "opportunities": opportunities_list
+        "rotation_suggestion": None,
+        "opportunities": opportunities_list[:10]
     }
+
+    opportunities_cache = response
+    cache_time = current_time
+
+    return response
+
+
+@app.get("/opportunities")
+def opportunities(refresh: int = Query(0)):
+    return build_opportunities_response(refresh)
 
 
 @app.get("/opportunities-simple")
 def opportunities_simple():
-    data = opportunities()
+    data = build_opportunities_response(0)
 
     lines = []
 
@@ -482,6 +552,153 @@ def opportunities_simple():
         lines.append(f"{symbol} - {signal_ar}")
 
     return {"lines": lines}
+
+
+# -----------------------------------
+# منطق المحفظة
+# -----------------------------------
+
+def calculate_portfolio_confidence(trend, momentum, rsi, macd_value, macd_signal, profit_percent):
+    confidence = 0
+
+    if trend == "uptrend":
+        confidence += 30
+    elif trend == "downtrend":
+        confidence += 5
+
+    if momentum == "positive":
+        confidence += 20
+    elif momentum == "negative":
+        confidence += 5
+
+    if rsi is not None:
+        if 45 <= rsi <= 65:
+            confidence += 20
+        elif 35 <= rsi < 45 or 65 < rsi <= 72:
+            confidence += 10
+
+    if macd_value is not None and macd_signal is not None:
+        if macd_value > macd_signal and macd_value > 0:
+            confidence += 20
+        elif macd_value > macd_signal:
+            confidence += 10
+
+    if profit_percent is not None:
+        if profit_percent >= 20:
+            confidence += 10
+        elif profit_percent >= 5:
+            confidence += 7
+        elif profit_percent >= 0:
+            confidence += 5
+
+    if confidence > 100:
+        confidence = 100
+
+    return confidence
+
+
+def calculate_risk_level(rsi, trend):
+    if rsi is None:
+        return "MEDIUM"
+
+    if rsi > 75:
+        return "HIGH"
+
+    if 65 <= rsi <= 75:
+        return "MEDIUM"
+
+    if rsi < 35 and trend == "downtrend":
+        return "HIGH"
+
+    if rsi < 40 and trend == "downtrend":
+        return "MEDIUM"
+
+    return "LOW"
+
+
+def portfolio_signal_and_reason(trend, momentum, profit_percent, current_price):
+    signal = "HOLD"
+    reason = ""
+
+    if trend == "uptrend" and momentum == "positive" and profit_percent is not None and profit_percent < 15:
+        signal = "ADD"
+        reason = "الاتجاه صاعد والزخم إيجابي والربح ما زال في بدايته"
+
+    elif trend == "uptrend" and momentum == "positive" and profit_percent is not None and profit_percent >= 15:
+        signal = "HOLD"
+        reason = "السهم قوي والربح جيد ويمكن الاستمرار بالاحتفاظ"
+
+    elif trend == "uptrend" and momentum == "negative" and profit_percent is not None and profit_percent >= 15:
+        signal = "REDUCE"
+        reason = "الربح جيد لكن الزخم بدأ يضعف، يفضل تخفيف جزء من الكمية"
+
+    elif trend == "downtrend" and profit_percent is not None and profit_percent > 5:
+        signal = "REDUCE"
+        reason = "السهم بدأ يضعف بعد ربح جيد"
+
+    elif trend == "downtrend" and profit_percent is not None and profit_percent < -5:
+        signal = "EXIT"
+        reason = "السهم في اتجاه هابط والخسارة تتزايد"
+
+    elif current_price is None:
+        signal = "HOLD"
+        reason = "تعذر جلب السعر الحالي"
+
+    if reason == "":
+        if trend == "uptrend":
+            reason = "السهم ما زال متماسكًا لكن لا توجد إشارة قوية لزيادة الكمية الآن"
+        elif trend == "downtrend":
+            reason = "السهم يمر بمرحلة ضعف لكن لم يعطِ إشارة خروج واضحة بعد"
+        else:
+            reason = "البيانات الحالية غير كافية لاتخاذ قرار أقوى من الاحتفاظ"
+
+    return signal, reason
+
+
+def rank_portfolio_item(item):
+    signal_score = 0
+
+    if item["signal"] == "ADD":
+        signal_score = 4
+    elif item["signal"] == "HOLD":
+        signal_score = 3
+    elif item["signal"] == "REDUCE":
+        signal_score = 2
+    elif item["signal"] == "EXIT":
+        signal_score = 1
+
+    risk_bonus = 0
+    if item["risk_level"] == "LOW":
+        risk_bonus = 2
+    elif item["risk_level"] == "MEDIUM":
+        risk_bonus = 1
+
+    return (signal_score * 100) + item["confidence"] + risk_bonus
+
+
+def make_rotation_suggestion(worst_position, bigbang_opportunity):
+    if bigbang_opportunity is None:
+        return "لا توجد فرصة BIGBANG حقيقية الآن، احتفظ بتوزيع محفظتك الحالي"
+
+    if worst_position is None:
+        return None
+
+    worst_symbol = worst_position.get("symbol", "")
+    bigbang_symbol = bigbang_opportunity.get("symbol", "")
+
+    if worst_symbol == "" or bigbang_symbol == "":
+        return None
+
+    if worst_symbol == bigbang_symbol:
+        return "أفضل فرصة اليوم موجودة أصلًا داخل محفظتك"
+
+    worst_signal = worst_position.get("signal", "HOLD")
+    worst_confidence = worst_position.get("confidence", 0)
+
+    if worst_signal in ["REDUCE", "EXIT"] or worst_confidence <= 50:
+        return f"تقليل {worst_symbol} وتحويل جزء من السيولة إلى {bigbang_symbol}"
+
+    return f"راقب {bigbang_symbol} كفرصة قوية، ولا توجد ضرورة حالياً لتغيير مكونات المحفظة"
 
 
 @app.post("/portfolio-analysis")
@@ -518,8 +735,6 @@ def portfolio_analysis(stocks: list = Body(...)):
             close_5 = None
             macd_value = None
             macd_signal = None
-            avg_volume_20 = None
-            latest_volume = None
 
             if len(closes) >= 10:
                 sma10 = float(closes.tail(10).mean())
@@ -527,10 +742,6 @@ def portfolio_analysis(stocks: list = Body(...)):
 
             if len(closes) >= 20:
                 sma20 = float(closes.tail(20).mean())
-
-            if len(volumes) >= 20:
-                avg_volume_20 = float(volumes.tail(20).mean())
-                latest_volume = float(volumes.iloc[-1])
 
             if current_price is not None and sma10 is not None:
                 trend = "uptrend" if current_price > sma10 else "downtrend"
@@ -549,84 +760,23 @@ def portfolio_analysis(stocks: list = Body(...)):
             rsi = calculate_rsi(closes, 14)
             macd_value, macd_signal = calculate_macd(closes)
 
-            confidence = 0
+            confidence = calculate_portfolio_confidence(
+                trend,
+                momentum,
+                rsi,
+                macd_value,
+                macd_signal,
+                profit_percent
+            )
 
-            if trend == "uptrend":
-                confidence += 30
-            elif trend == "downtrend":
-                confidence += 5
+            risk_level = calculate_risk_level(rsi, trend)
 
-            if momentum == "positive":
-                confidence += 20
-            elif momentum == "negative":
-                confidence += 5
-
-            if rsi is not None:
-                if 45 <= rsi <= 65:
-                    confidence += 20
-                elif 35 <= rsi < 45 or 65 < rsi <= 72:
-                    confidence += 10
-
-            if macd_value is not None and macd_signal is not None:
-                if macd_value > macd_signal and macd_value > 0:
-                    confidence += 20
-                elif macd_value > macd_signal:
-                    confidence += 10
-
-            if profit_percent is not None:
-                if profit_percent >= 20:
-                    confidence += 10
-                elif profit_percent >= 5:
-                    confidence += 7
-                elif profit_percent >= 0:
-                    confidence += 5
-
-            if confidence > 100:
-                confidence = 100
-
-            if rsi is None:
-                risk_level = "MEDIUM"
-            elif rsi < 65:
-                risk_level = "LOW"
-            elif rsi <= 75:
-                risk_level = "MEDIUM"
-            else:
-                risk_level = "HIGH"
-
-            signal = "HOLD"
-            reason = ""
-
-            if trend == "uptrend" and momentum == "positive" and profit_percent is not None and profit_percent < 15:
-                signal = "ADD"
-                reason = "الاتجاه صاعد والزخم إيجابي والربح ما زال في بدايته"
-
-            elif trend == "uptrend" and momentum == "positive" and profit_percent is not None and profit_percent >= 15:
-                signal = "HOLD"
-                reason = "السهم قوي والربح جيد ويمكن الاستمرار بالاحتفاظ"
-
-            elif trend == "uptrend" and momentum == "negative" and profit_percent is not None and profit_percent >= 15:
-                signal = "REDUCE"
-                reason = "الربح جيد لكن الزخم بدأ يضعف، يفضل تخفيف جزء من الكمية"
-
-            elif trend == "downtrend" and profit_percent is not None and profit_percent > 5:
-                signal = "REDUCE"
-                reason = "السهم بدأ يضعف بعد ربح جيد"
-
-            elif trend == "downtrend" and profit_percent is not None and profit_percent < -5:
-                signal = "EXIT"
-                reason = "السهم في اتجاه هابط والخسارة تتزايد"
-
-            elif current_price is None:
-                signal = "HOLD"
-                reason = "تعذر جلب السعر الحالي"
-
-            if reason == "":
-                if trend == "uptrend":
-                    reason = "السهم ما زال متماسكًا لكن لا توجد إشارة قوية لزيادة الكمية الآن"
-                elif trend == "downtrend":
-                    reason = "السهم يمر بمرحلة ضعف لكن لم يعطِ إشارة خروج واضحة بعد"
-                else:
-                    reason = "البيانات الحالية غير كافية لاتخاذ قرار أقوى من الاحتفاظ"
+            signal, reason = portfolio_signal_and_reason(
+                trend,
+                momentum,
+                profit_percent,
+                current_price
+            )
 
             stop_loss = None
             target = None
@@ -679,27 +829,6 @@ def portfolio_analysis(stocks: list = Body(...)):
             "macd_signal": macd_signal
         })
 
-    def rank_portfolio_item(item):
-        signal_score = 0
-        if item["signal"] == "ADD":
-            signal_score = 4
-        elif item["signal"] == "HOLD":
-            signal_score = 3
-        elif item["signal"] == "REDUCE":
-            signal_score = 2
-        elif item["signal"] == "EXIT":
-            signal_score = 1
-
-        risk_bonus = 0
-        if item["risk_level"] == "LOW":
-            risk_bonus = 2
-        elif item["risk_level"] == "MEDIUM":
-            risk_bonus = 1
-        else:
-            risk_bonus = 0
-
-        return (signal_score * 100) + item["confidence"] + risk_bonus
-
     best_position = None
     worst_position = None
 
@@ -707,9 +836,16 @@ def portfolio_analysis(stocks: list = Body(...)):
         best_position = sorted(results, key=rank_portfolio_item, reverse=True)[0]
         worst_position = sorted(results, key=rank_portfolio_item)[0]
 
+    opportunities_data = build_opportunities_response(0)
+    bigbang_opportunity = opportunities_data.get("bigbang_opportunity")
+
+    rotation_suggestion = make_rotation_suggestion(worst_position, bigbang_opportunity)
+
     return {
         "best_position": best_position,
         "worst_position": worst_position,
+        "bigbang_opportunity": bigbang_opportunity,
+        "rotation_suggestion": rotation_suggestion,
         "portfolio": results
     }
 
