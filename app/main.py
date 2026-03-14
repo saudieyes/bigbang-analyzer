@@ -497,10 +497,13 @@ def portfolio_analysis(stocks: list = Body(...)):
             stock = yf.Ticker(symbol)
             hist = stock.history(period="3mo")
 
-            closes = hist["Close"].dropna() if not hist.empty else []
+            if hist.empty:
+                raise Exception("No history")
+
+            closes = hist["Close"].dropna()
+            volumes = hist["Volume"].dropna() if "Volume" in hist.columns else []
 
             current_price = None
-
             if len(closes) > 0:
                 current_price = float(closes.iloc[-1])
 
@@ -511,13 +514,27 @@ def portfolio_analysis(stocks: list = Body(...)):
                     current_price = None
 
             sma10 = None
+            sma20 = None
             close_5 = None
+            macd_value = None
+            macd_signal = None
+            avg_volume_20 = None
+            latest_volume = None
+            volume_ratio = None
 
             if len(closes) >= 10:
                 sma10 = float(closes.tail(10).mean())
-
-            if len(closes) > 5:
                 close_5 = float(closes.iloc[-6])
+
+            if len(closes) >= 20:
+                sma20 = float(closes.tail(20).mean())
+
+            if len(volumes) >= 20:
+                avg_volume_20 = float(volumes.tail(20).mean())
+                latest_volume = float(volumes.iloc[-1])
+
+            if latest_volume is not None and avg_volume_20 is not None and avg_volume_20 > 0:
+                volume_ratio = latest_volume / avg_volume_20
 
             if current_price is not None and sma10 is not None:
                 trend = "uptrend" if current_price > sma10 else "downtrend"
@@ -534,17 +551,66 @@ def portfolio_analysis(stocks: list = Body(...)):
                 momentum = "positive" if current_price > close_5 else "negative"
 
             rsi = calculate_rsi(closes, 14)
+            macd_value, macd_signal = calculate_macd(closes)
+
+            confidence = 0
+
+            if trend == "uptrend":
+                confidence += 30
+            elif trend == "downtrend":
+                confidence += 5
+
+            if momentum == "positive":
+                confidence += 20
+            elif momentum == "negative":
+                confidence += 5
+
+            if rsi is not None:
+                if 45 <= rsi <= 65:
+                    confidence += 20
+                elif 35 <= rsi < 45 or 65 < rsi <= 72:
+                    confidence += 10
+
+            if macd_value is not None and macd_signal is not None:
+                if macd_value > macd_signal and macd_value > 0:
+                    confidence += 20
+                elif macd_value > macd_signal:
+                    confidence += 10
+
+            if profit_percent is not None:
+                if profit_percent >= 20:
+                    confidence += 10
+                elif profit_percent >= 5:
+                    confidence += 7
+                elif profit_percent >= 0:
+                    confidence += 5
+
+            if confidence > 100:
+                confidence = 100
+
+            if rsi is None:
+                risk_level = "MEDIUM"
+            elif rsi < 65:
+                risk_level = "LOW"
+            elif rsi <= 75:
+                risk_level = "MEDIUM"
+            else:
+                risk_level = "HIGH"
 
             signal = "HOLD"
             reason = ""
 
-            if trend == "uptrend" and momentum == "positive" and profit_percent is not None and profit_percent < 5:
+            if trend == "uptrend" and momentum == "positive" and profit_percent is not None and profit_percent < 15:
                 signal = "ADD"
-                reason = "الاتجاه صاعد والزخم إيجابي والسهم قريب من سعر الشراء"
+                reason = "الاتجاه صاعد والزخم إيجابي والربح ما زال في بدايته"
 
-            elif trend == "uptrend" and profit_percent is not None and profit_percent >= 5:
+            elif trend == "uptrend" and momentum == "positive" and profit_percent is not None and profit_percent >= 15:
                 signal = "HOLD"
-                reason = "السهم في اتجاه صاعد والربح جيد"
+                reason = "السهم قوي والربح جيد ويمكن الاستمرار بالاحتفاظ"
+
+            elif trend == "uptrend" and momentum == "negative" and profit_percent is not None and profit_percent >= 15:
+                signal = "REDUCE"
+                reason = "الربح جيد لكن الزخم بدأ يضعف، يفضل تخفيف جزء من الكمية"
 
             elif trend == "downtrend" and profit_percent is not None and profit_percent > 5:
                 signal = "REDUCE"
@@ -560,10 +626,16 @@ def portfolio_analysis(stocks: list = Body(...)):
 
             stop_loss = None
             target = None
+            add_zone_low = None
+            add_zone_high = None
 
             if current_price is not None:
                 stop_loss = round(current_price * 0.95, 2)
                 target = round(current_price * 1.12, 2)
+
+            if sma20 is not None:
+                add_zone_low = round(sma20 * 0.99, 2)
+                add_zone_high = round(sma20 * 1.01, 2)
 
         except:
             current_price = None
@@ -574,6 +646,13 @@ def portfolio_analysis(stocks: list = Body(...)):
             rsi = None
             stop_loss = None
             target = None
+            confidence = 0
+            risk_level = "MEDIUM"
+            momentum = "unknown"
+            add_zone_low = None
+            add_zone_high = None
+            macd_value = None
+            macd_signal = None
 
         results.append({
             "symbol": symbol,
@@ -586,10 +665,49 @@ def portfolio_analysis(stocks: list = Body(...)):
             "reason": reason,
             "rsi": rsi,
             "stop_loss": stop_loss,
-            "target": target
+            "target": target,
+            "confidence": confidence,
+            "risk_level": risk_level,
+            "momentum": momentum,
+            "add_zone_low": add_zone_low,
+            "add_zone_high": add_zone_high,
+            "macd": macd_value,
+            "macd_signal": macd_signal
         })
 
-    return {"portfolio": results}
+    def rank_portfolio_item(item):
+        signal_score = 0
+        if item["signal"] == "ADD":
+            signal_score = 4
+        elif item["signal"] == "HOLD":
+            signal_score = 3
+        elif item["signal"] == "REDUCE":
+            signal_score = 2
+        elif item["signal"] == "EXIT":
+            signal_score = 1
+
+        risk_penalty = 0
+        if item["risk_level"] == "LOW":
+            risk_penalty = 2
+        elif item["risk_level"] == "MEDIUM":
+            risk_penalty = 1
+        else:
+            risk_penalty = 0
+
+        return (signal_score * 100) + item["confidence"] + risk_penalty
+
+    best_position = None
+    worst_position = None
+
+    if len(results) > 0:
+        best_position = sorted(results, key=rank_portfolio_item, reverse=True)[0]
+        worst_position = sorted(results, key=rank_portfolio_item)[0]
+
+    return {
+        "best_position": best_position,
+        "worst_position": worst_position,
+        "portfolio": results
+    }
 
 
 @app.get("/portfolio-test")
