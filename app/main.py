@@ -488,6 +488,10 @@ def get_stock_data(symbol):
     }
 
 
+# -----------------------------------
+# فرص القائمة الحالية
+# -----------------------------------
+
 def build_opportunities_response(refresh=0):
     global opportunities_cache
     global cache_time
@@ -578,6 +582,39 @@ def opportunities_simple():
         lines.append(f"{symbol} - {signal_ar}")
 
     return {"lines": lines}
+
+
+# -----------------------------------
+# التحليل اليدوي المتعدد
+# -----------------------------------
+
+@app.post("/manual-analysis")
+def manual_analysis(payload: dict = Body(...)):
+    symbols = payload.get("symbols", [])
+
+    if not isinstance(symbols, list):
+        return {"results": []}
+
+    results = []
+
+    for raw_symbol in symbols:
+        symbol = str(raw_symbol).strip().upper()
+
+        if symbol == "":
+            continue
+
+        data = get_stock_data(symbol)
+
+        if data is not None:
+            results.append(data)
+
+    results = sorted(
+        results,
+        key=top_opportunity_sort_key,
+        reverse=True
+    )
+
+    return {"results": results}
 
 
 # -----------------------------------
