@@ -80,9 +80,6 @@ def calculate_ema_series(values, period):
 
 
 def calculate_macd(closes):
-    """
-    نسخة أسرع بكثير من النسخة القديمة.
-    """
     if len(closes) < 35:
         return None, None
 
@@ -92,7 +89,6 @@ def calculate_macd(closes):
     if len(ema12_series) == 0 or len(ema26_series) == 0:
         return None, None
 
-    # نطابق السلسلتين على آخر جزء مشترك
     offset = len(ema12_series) - len(ema26_series)
     if offset < 0:
         return None, None
@@ -206,6 +202,27 @@ def opportunity_sort_key(item):
         item.get("breakout_score", 0),
         item.get("score", 0),
         1 if item.get("entry_status") == "IN_ZONE" else 0
+    )
+
+
+def top_opportunity_sort_key(item):
+    signal_priority = 0
+    if item.get("signal") == "STRONG_BUY":
+        signal_priority = 3
+    elif item.get("signal") == "BUY":
+        signal_priority = 2
+    elif item.get("signal") == "WATCH":
+        signal_priority = 1
+
+    bigbang_priority = 1 if item.get("opportunity_type") == "BIGBANG" else 0
+    in_zone_priority = 1 if item.get("entry_status") == "IN_ZONE" else 0
+
+    return (
+        item.get("score", 0),
+        signal_priority,
+        bigbang_priority,
+        in_zone_priority,
+        item.get("breakout_score", 0)
     )
 
 
@@ -501,16 +518,22 @@ def build_opportunities_response(refresh=0):
         if item["signal"] in ["STRONG_BUY", "BUY", "WATCH"]
     ]
 
-    opportunities_list = sorted(
+    sorted_for_list = sorted(
         opportunities_list,
         key=opportunity_sort_key,
         reverse=True
     )
 
-    top_opportunity = opportunities_list[0] if len(opportunities_list) > 0 else None
+    sorted_for_top = sorted(
+        opportunities_list,
+        key=top_opportunity_sort_key,
+        reverse=True
+    )
+
+    top_opportunity = sorted_for_top[0] if len(sorted_for_top) > 0 else None
 
     bigbang_opportunity = None
-    for item in opportunities_list:
+    for item in sorted_for_list:
         if item["opportunity_type"] == "BIGBANG":
             bigbang_opportunity = item
             break
@@ -519,7 +542,7 @@ def build_opportunities_response(refresh=0):
         "bigbang_opportunity": bigbang_opportunity,
         "top_opportunity": top_opportunity,
         "rotation_suggestion": None,
-        "opportunities": opportunities_list[:10]
+        "opportunities": sorted_for_list[:10]
     }
 
     opportunities_cache = response
